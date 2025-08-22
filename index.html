@@ -84,6 +84,19 @@
 
     .hidden{display:none}
 
+    .highlight{background:rgba(59,130,246,.15);border-left:4px solid var(--accent-2);padding:8px 10px;border-radius:8px;margin:6px 0}
+    .highlight.warn{background:rgba(239,68,68,.15);border-color:var(--bad)}
+    .bullets{margin:4px 0 4px 20px}
+
+    body::after{
+      content:'';
+      position:fixed;
+      right:10px;bottom:10px;
+      width:80px;height:80px;
+      background:url('clippy.svg') no-repeat center/contain;
+      opacity:.3;pointer-events:none;
+    }
+
     /* Print styles for single-entry print view */
     @media print{
       header, nav, .actions, #entries, #importer, #settings { display:none !important }
@@ -228,7 +241,7 @@
             </div>
             <div>
               <label for="nextSteps">Next Steps</label>
-              <input type="text" id="nextSteps" placeholder="e.g., Re-test tomorrow, fix leak @ lav" />
+              <textarea id="nextSteps" placeholder="e.g., Re-test tomorrow\nFix leak @ lav"></textarea>
             </div>
           </div>
         </div>
@@ -281,6 +294,32 @@
           </div>
         </div>
       </form>
+
+      <div id="gradeCalc" class="card" style="margin-top:16px">
+        <h3 style="margin-top:0">Pipe Grade Calculator</h3>
+        <div class="grid two">
+          <div>
+            <label for="startElev">Start Elevation (ft)</label>
+            <input type="number" id="startElev" step="0.01" />
+          </div>
+          <div>
+            <label for="endElev">End Elevation (ft)</label>
+            <input type="number" id="endElev" step="0.01" />
+          </div>
+          <div>
+            <label for="runDist">Run (ft)</label>
+            <input type="number" id="runDist" step="0.01" />
+          </div>
+          <div>
+            <label for="gradeOutput">Grade (%)</label>
+            <input type="text" id="gradeOutput" readonly />
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="calcGrade">Calculate</button>
+          <button type="button" id="clearGrade" class="secondary">Clear</button>
+        </div>
+      </div>
     </section>
 
     <!-- ENTRIES -->
@@ -714,6 +753,22 @@
     // Print
     $('#btnPrint').addEventListener('click', ()=> window.print());
 
+    // Grade calculator
+    $('#calcGrade').addEventListener('click', ()=>{
+      const s = parseFloat($('#startElev').value);
+      const e = parseFloat($('#endElev').value);
+      const r = parseFloat($('#runDist').value);
+      if(isFinite(s) && isFinite(e) && isFinite(r) && r!==0){
+        const g = ((s - e) / r) * 100;
+        $('#gradeOutput').value = g.toFixed(2) + '%';
+      }else{
+        $('#gradeOutput').value = '';
+      }
+    });
+    $('#clearGrade').addEventListener('click', ()=>{
+      ['startElev','endElev','runDist','gradeOutput'].forEach(id=> $('#'+id).value='');
+    });
+
     // ---- List rendering ----
     function statusDot(val){
       let c = '#475569';
@@ -756,9 +811,10 @@
             ${extras?`<span class=\"pill\">${extras}</span>`:''}
           </div>
           ${subtitle?`<div class=\"muted\" style=\"margin:6px 0 8px 0\">${subtitle}</div>`:''}
-          ${x.completed?`<div style=\"margin:6px 0\"><strong>Completed:</strong> <span class=\"muted\">${escapeHTML(x.completed).slice(0,220)}</span></div>`:''}
-          ${x.attention?`<div style=\"margin:6px 0\"><strong>Needs Attention:</strong> <span class=\"muted\">${escapeHTML(x.attention).slice(0,220)}</span></div>`:''}
-          ${x.notes?`<div style=\"white-space:pre-wrap;border-left:3px solid var(--border);padding-left:10px\">${escapeHTML(x.notes).slice(0,400)}</div>`:''}
+          ${x.completed?`<div class=\"highlight\"><strong>Completed:</strong> <span class=\"muted\">${escapeHTML(x.completed).slice(0,220)}</span></div>`:''}
+          ${x.nextSteps?`<div class=\"highlight\"><strong>Next Steps:</strong>${bulletify(x.nextSteps)}</div>`:''}
+          ${x.attention?`<div class=\"highlight warn\"><strong>Needs Attention:</strong>${bulletify(x.attention)}</div>`:''}
+          ${x.notes?`<div class=\"highlight\">${bulletify(x.notes)}</div>`:''}
           <div class=\"row\" style=\"margin-top:8px;gap:8px;flex-wrap:wrap\">
             <button type=\"button\" data-act=\"edit\" data-id=\"${x.id}\">Edit</button>
             <button type=\"button\" class=\"secondary\" data-act=\"dup\" data-id=\"${x.id}\">Duplicate</button>
@@ -813,6 +869,12 @@
         .replace(/</g,'&lt;')
         .replace(/>/g,'&gt;')
         .replace(/"/g,'&quot;');
+    }
+
+    function bulletify(text){
+      if(!text) return '';
+      const items = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      return items.length ? `<ul class="bullets">${items.map(s=>`<li>${escapeHTML(s)}</li>`).join('')}</ul>` : '';
     }
 
     // Filters and search
