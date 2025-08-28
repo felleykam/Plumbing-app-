@@ -4,18 +4,23 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Plumbing Field Log — Durrant Slate</title>
+  <!-- Add a manifest for PWA support -->
   <meta name="theme-color" content="#0f172a" />
   <link rel="manifest" href="manifest.webmanifest" />
+  <!-- Load localForage for IndexedDB storage -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" integrity="sha512-G0dzkjoWTxofNcV+oJ5BX0tK6jq4RqMjece9D5PvQGjVDFL2Sd6zAHLgpD4+dWZGaWavWXIgiMlXvvp8Ox9KYg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Load signature_pad for capturing signatures -->
+  <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.0/dist/signature_pad.umd.min.js" integrity="sha384-OTluVJkMsu21b6rRctSh/ZC7AL1X+1GzlSIwHtdPPKP+k9n6Xtp2cN46FRNrdbr7" crossorigin="anonymous"></script>
   <style>
     :root{
-      /* Gray primary + Navy trim */
+      /* Dark theme variables */
       --bg: #0d1117;
       --bg-elev: #121826;
       --panel: #161d2b;
       --muted: #94a3b8;
       --text: #e6edf3;
-      --accent: #1e3a8a; /* navy */
-      --accent-2: #3b82f6; /* blue for focus */
+      --accent: #1e3a8a;
+      --accent-2: #3b82f6;
       --ok: #22c55e;
       --warn: #f59e0b;
       --bad: #ef4444;
@@ -26,9 +31,22 @@
       --focus: 0 0 0 3px rgba(30,58,138,.5);
       --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
     }
+    [data-theme="light"] {
+      /* Light theme overrides */
+      --bg: #f8fafc;
+      --bg-elev: #ffffff;
+      --panel: #f1f5f9;
+      --muted: #475569;
+      --text: #1e293b;
+      --accent: #1e40af;
+      --accent-2: #2563eb;
+      --border: #cbd5e1;
+      --chip: #e2e8f0;
+      --shadow: rgba(0,0,0,.1);
+    }
 
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font);}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font);}    
     a{color:var(--accent)}
     .wrap{max-width:980px;margin:0 auto;padding:16px}
 
@@ -42,7 +60,7 @@
     .title h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px}
 
     .actions{display:flex;gap:8px;flex-wrap:wrap}
-    button, .btn{appearance:none;background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:12px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px var(--shadow);transition:transform .06s ease, filter .2s ease}
+    button{appearance:none;background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:12px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px var(--shadow);transition:transform .06s ease, filter .2s ease}
     button.secondary{background:transparent;color:var(--text);border:1px solid var(--border)}
     button.ghost{background:transparent;color:var(--muted)}
     button:active{transform:translateY(1px)}
@@ -81,8 +99,13 @@
     .thumb-wrap{display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
 
     .hr{height:1px;background:var(--border);margin:10px 0}
-
     .hidden{display:none}
+
+    /* Light theme input colours override */
+    [data-theme="light"] input[type="text"], [data-theme="light"] input[type="number"],
+    [data-theme="light"] input[type="date"], [data-theme="light"] input[type="time"], [data-theme="light"] textarea, [data-theme="light"] select {
+      background:#fff;
+    }
 
     /* Print styles for single-entry print view */
     @media print{
@@ -103,6 +126,10 @@
         <button id="btnExportCSV" class="secondary" title="Export all entries as CSV" type="button">Export CSV</button>
         <button id="btnImport" class="secondary" title="Import from a JSON backup" type="button">Import</button>
         <button id="btnSettings" class="ghost" title="Preferences" type="button">Settings</button>
+        <button id="toggleTheme" class="secondary" title="Toggle Light/Dark Mode" type="button">🌓</button>
+        <!-- Sync actions use the File System Access API to save and load a log file. -->
+        <button id="btnSaveToFile" class="secondary" title="Save entries to a JSON file" type="button">Save to File</button>
+        <button id="btnLoadFromFile" class="secondary" title="Load entries from a JSON file" type="button">Load from File</button>
       </div>
     </div>
     <nav class="tabs wrap">
@@ -265,6 +292,16 @@
           <div id="photoList" class="thumb-wrap" style="margin-top:8px"></div>
         </div>
 
+        <!-- Signature -->
+        <div class="card" style="background:var(--bg-elev)">
+          <h3 style="margin:0 0 8px 0">Signature</h3>
+          <p class="muted">Use your finger or mouse to sign below. A signature can be used to sign off work.</p>
+          <canvas id="signaturePad" width="320" height="160" style="border:1px solid var(--border);border-radius:6px;background:var(--bg);touch-action:none"></canvas>
+          <div class="row" style="margin-top:6px">
+            <button type="button" id="btnClearSignature" class="secondary">Clear Signature</button>
+          </div>
+        </div>
+
         <div style="grid-column:1 / -1">
           <label for="notes">General Notes</label>
           <textarea id="notes" placeholder="What you did, materials, issues, who you talked to, punch items..."></textarea>
@@ -330,7 +367,7 @@
         <input id="defCity" type="text" placeholder="Optional" />
       </div>
       <div>
-        <label for="defSuper">Default Superintendent</label>
+        <label for "defSuper">Default Superintendent</label>
         <input id="defSuper" type="text" placeholder="Optional" />
       </div>
       <div>
@@ -364,9 +401,16 @@
   </main>
 
   <script>
-    // ---- Simple localStorage DB ----
-    const KEY = 'plumbLog_v2';
-    const SETTINGS_KEY = 'plumbLog_settings_v2';
+    // -------------------------------------------
+    // LocalForage configuration for IndexedDB
+    // Using IndexedDB via localForage to store larger datasets asynchronously.
+    localforage.config({
+      name: 'plumbLog',
+      version: 1.0,
+      storeName: 'entriesStore'
+    });
+
+    const SETTINGS_KEY = 'settings';
 
     const $ = sel => document.querySelector(sel);
     const $$ = sel => document.querySelectorAll(sel);
@@ -374,28 +418,44 @@
     const todayStr = () => new Date().toISOString().slice(0,10);
     const timeStr = () => new Date().toTimeString().slice(0,5);
 
-    function loadEntries(){
-      try{
-        const v2 = JSON.parse(localStorage.getItem(KEY));
-        if(Array.isArray(v2)) return v2;
-        const v1 = JSON.parse(localStorage.getItem('plumbLog_v1'));
-        return Array.isArray(v1) ? v1 : [];
-      }catch(e){ return [] }
+    async function loadEntries(){
+      const arr = await localforage.getItem('entries');
+      return Array.isArray(arr) ? arr : [];
     }
-    function saveEntries(arr){
-      try{ localStorage.setItem(KEY, JSON.stringify(arr)) }
+    async function saveEntries(arr){
+      try { await localforage.setItem('entries', arr); }
       catch(err){ alert('Save failed (likely photo storage is full). Try removing some photos or exporting & clearing.'); }
     }
-    function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2)) }
-
-    function loadSettings(){
-      try{ return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {} }catch(e){ return {} }
+    async function loadSettings(){
+      const s = await localforage.getItem(SETTINGS_KEY);
+      return s || {};
     }
-    function saveSettings(obj){ localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj)) }
+    async function saveSettings(obj){ await localforage.setItem(SETTINGS_KEY, obj); }
 
-    const state = { entries: loadEntries(), settings: loadSettings(), formPhotos: [] };
+    function uid(){ return (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2)); }
 
-    // ---- Tabs ----
+    const state = { entries: [], settings: {}, formPhotos: [], signature: null };
+
+    // Initialize signature pad
+    let signaturePad;
+
+    // Theme toggle
+    function toggleTheme(){
+      const current = document.documentElement.dataset.theme;
+      const newTheme = current === 'light' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = newTheme;
+      // persist theme in settings
+      state.settings.theme = newTheme;
+      saveSettings(state.settings);
+    }
+
+    // Set theme from settings
+    function applyThemeFromSettings(){
+      const theme = state.settings.theme || 'dark';
+      document.documentElement.dataset.theme = theme;
+    }
+
+    // Tab navigation
     $$('nav.tabs button').forEach(b=>{
       b.addEventListener('click', ()=>{
         $$('nav.tabs button').forEach(x=>x.classList.remove('active'));
@@ -410,16 +470,12 @@
     // Header action routes
     $('#btnImport').addEventListener('click', ()=>{
       $$('nav.tabs button').forEach(x=>x.classList.remove('active'));
-      $('#form').classList.add('hidden');
-      $('#entries').classList.add('hidden');
-      $('#settings').classList.add('hidden');
+      ['form','entries','settings'].forEach(id=> $('#'+id).classList.add('hidden'));
       $('#importer').classList.remove('hidden');
     });
     $('#btnSettings').addEventListener('click', ()=>{
       $$('nav.tabs button').forEach(x=>x.classList.remove('active'));
-      $('#form').classList.add('hidden');
-      $('#entries').classList.add('hidden');
-      $('#importer').classList.add('hidden');
+      ['form','entries','importer'].forEach(id=> $('#'+id).classList.add('hidden'));
       $('#settings').classList.remove('hidden');
       // preload settings into fields
       $('#defGC').value = state.settings.defGC || '';
@@ -432,7 +488,10 @@
       $('#addrFormat').value = state.settings.addrFormat || 'full';
     });
 
-    // ---- Form helpers ----
+    // Theme toggle button
+    $('#toggleTheme').addEventListener('click', toggleTheme);
+
+    // Form helpers
     function resetForm(preset={}){
       $('#entryId').value = preset.id || '';
       $('#date').value = preset.date || todayStr();
@@ -461,6 +520,15 @@
       setMaterials(preset.materials || []);
       state.formPhotos = Array.isArray(preset.photos) ? preset.photos : [];
       renderPhotos();
+      state.signature = preset.signature || null;
+      // clear signature pad
+      if(signaturePad){
+        signaturePad.clear();
+        // If there is a stored signature, draw it using signature_pad API
+        if(state.signature){
+          try{ signaturePad.fromDataURL(state.signature); }catch(e){ /* ignore invalid signature */ }
+        }
+      }
       $('#notes').value = preset.notes || '';
     }
 
@@ -490,15 +558,15 @@
         attention: $('#attention').value.trim(),
         materials: getMaterials(),
         photos: state.formPhotos,
+        signature: state.signature,
         notes: $('#notes').value.trim(),
         createdAt: $('#entryId').value ? undefined : new Date().toISOString(),
         updatedAt: new Date().toISOString()
-      }
+      };
     }
 
     function isSecure(){ return (window.isSecureContext || location.protocol==='https:' || location.hostname==='localhost'); }
-
-    function formatLatLng(lat,lng){ return `${lat.toFixed(6)}, ${lng.toFixed(6)}` }
+    function formatLatLng(lat,lng){ return `${lat.toFixed(6)}, ${lng.toFixed(6)}`; }
 
     function shortAddrFromOSM(obj){
       const a = obj && obj.address ? obj.address : {};
@@ -534,7 +602,7 @@
           const full = j.features && j.features[0] && j.features[0].place_name;
           return full || formatLatLng(lat,lng);
         }
-        // Default: Nominatim (OSM) — light personal use only
+        // Default: Nominatim (OSM)
         const email = state.settings.contactEmail ? `&email=${encodeURIComponent(state.settings.contactEmail)}` : '';
         const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1${email}`;
         const r = await fetch(url, { headers: { 'Accept':'application/json' }});
@@ -550,7 +618,7 @@
 
     // GPS capture
     $('#btnGPS').addEventListener('click', ()=>{
-      if(!navigator.geolocation){ alert('Geolocation not supported on this device.'); return }
+      if(!navigator.geolocation){ alert('Geolocation not supported on this device.'); return; }
       if(!isSecure()){
         alert('GPS needs https or localhost. If you opened this as a file, serve it from http://localhost or host it on any https site (e.g., GitHub Pages).');
         return;
@@ -563,38 +631,32 @@
         $('#coords').dataset.coords = JSON.stringify({lat, lng, ts: Date.now()});
         try{
           const addr = await reverseGeocode(lat,lng);
-          $('#location').value = addr; // fill with street address
+          $('#location').value = addr;
         }catch(_){ $('#location').value = pair; }
         btn.textContent = '📍'; btn.disabled = false;
       }, err=>{
-        alert('GPS error: ' + err.message + ' — Tip: On iOS/Safari, GPS requires https or localhost.');
+        alert('GPS error: ' + err.message);
         btn.textContent = '📍'; btn.disabled = false;
       }, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
     });
 
-    // Open in Maps (Apple on iOS, Google elsewhere)
+    // Open in Maps
     document.getElementById('btnMaps').addEventListener('click', ()=>{
       let lat=null, lng=null;
-      if($('#coords').dataset.coords){
-        try { const c = JSON.parse($('#coords').dataset.coords); lat=c.lat; lng=c.lng; } catch(_){ }
-      }
+      if($('#coords').dataset.coords){ try { const c = JSON.parse($('#coords').dataset.coords); lat=c.lat; lng=c.lng; } catch(_){} }
       if(lat===null || lng===null){
         const m = ($('#location').value||'').match(/(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/);
         if(m){ lat=parseFloat(m[1]); lng=parseFloat(m[2]); }
       }
       const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       let url='';
-      if(lat!==null && lng!==null){
-        const pair = lat + ',' + lng;
-        url = isiOS ? ('https://maps.apple.com/?ll=' + pair) : ('https://www.google.com/maps?q=' + pair);
-      } else {
-        const q = encodeURIComponent($('#location').value||'');
-        url = isiOS ? ('https://maps.apple.com/?q=' + q) : ('https://www.google.com/maps/search/?api=1&query=' + q);
-      }
+      if(lat!==null && lng!==null){ const pair = lat + ',' + lng; url = isiOS ? ('https://maps.apple.com/?ll=' + pair) : ('https://www.google.com/maps?q=' + pair); }
+      else { const q = encodeURIComponent($('#location').value||''); url = isiOS ? ('https://maps.apple.com/?q=' + q) : ('https://www.google.com/maps/search/?api=1&query=' + q); }
       window.open(url, '_blank');
     });
 
     // Materials UI
+    function escapeHTML(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function matRow(m={ id: uid(), name:'', qty:'', unit:'' }){
       const wrap = document.createElement('div');
       wrap.className = 'row';
@@ -615,22 +677,17 @@
         </div>
         <button type="button" class="secondary" data-del>Remove</button>
       `;
-      wrap.querySelector('[data-del]').addEventListener('click',()=>{ wrap.remove() });
+      wrap.querySelector('[data-del]').addEventListener('click',()=>{ wrap.remove(); });
       return wrap;
     }
-    function setMaterials(arr){
-      const box = $('#materials'); box.innerHTML = '';
-      (arr && arr.length? arr : [{},{}]).forEach(m=> box.appendChild(matRow(m)));
-    }
-    function getMaterials(){
-      return Array.from($('#materials').children).map(row=>{
+    function setMaterials(arr){ const box = $('#materials'); box.innerHTML = ''; (arr && arr.length? arr : [{}]).forEach(m=> box.appendChild(matRow(m))); }
+    function getMaterials(){ return Array.from($('#materials').children).map(row=>{
         const [nameEl, qtyEl, unitEl] = row.querySelectorAll('input');
         return { id: row.dataset.id || uid(), name: nameEl.value.trim(), qty: qtyEl.value ? Number(qtyEl.value) : '', unit: unitEl.value.trim() };
-      }).filter(m=> m.name || m.qty || m.unit);
-    }
+      }).filter(m=> m.name || m.qty || m.unit); }
     $('#btnAddMat').addEventListener('click', ()=> $('#materials').appendChild(matRow({})));
 
-    // Photos UI (compressed)
+    // Photos UI (compressed and stored in memory)
     async function fileToDataURL(file, maxDim=1600, quality=0.75){
       const img = new Image();
       const reader = new FileReader();
@@ -649,7 +706,6 @@
 
     function renderPhotos(){
       const box = $('#photoList'); box.innerHTML = '';
-      if(!state.formPhotos) state.formPhotos = [];
       state.formPhotos.forEach(p=>{
         const wrap = document.createElement('div');
         wrap.style.maxWidth = '220px';
@@ -681,15 +737,29 @@
       toast('Photos added');
     });
 
+    // Signature Pad setup
+    function initSignature(){
+      const canvas = document.getElementById('signaturePad');
+      signaturePad = new SignaturePad(canvas, { backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--bg') });
+      $('#btnClearSignature').addEventListener('click', ()=>{
+        signaturePad.clear();
+        state.signature = null;
+      });
+      // Save drawn signature to state
+      signaturePad.onEnd = () => {
+        if(!signaturePad.isEmpty()){ state.signature = signaturePad.toDataURL('image/png'); }
+      };
+    }
+
     // Save
-    $('#entryForm').addEventListener('submit', (e)=>{
+    $('#entryForm').addEventListener('submit', async (e)=>{
       e.preventDefault();
       const data = readForm();
-      if(!data.date || !data.time || !data.job){ alert('Date, time, and job site are required.'); return }
+      if(!data.date || !data.time || !data.job){ alert('Date, time, and job site are required.'); return; }
       const idx = state.entries.findIndex(x=> x.id === data.id);
       if(idx>=0){ state.entries[idx] = { ...state.entries[idx], ...data }; }
       else { state.entries.unshift(data); }
-      saveEntries(state.entries);
+      await saveEntries(state.entries);
       resetForm({});
       toast('Saved.');
     });
@@ -698,7 +768,7 @@
     $('#btnReset').addEventListener('click', ()=> resetForm({}));
 
     // Duplicate
-    $('#btnDuplicate').addEventListener('click', ()=>{
+    $('#btnDuplicate').addEventListener('click', async ()=>{
       const d = readForm();
       d.id = uid();
       d.date = todayStr();
@@ -706,42 +776,28 @@
       d.createdAt = new Date().toISOString();
       d.updatedAt = d.createdAt;
       state.entries.unshift(d);
-      saveEntries(state.entries);
-      resetForm(d); // keep visible
+      await saveEntries(state.entries);
+      resetForm(d);
       toast('Duplicated as a new entry.');
     });
 
     // Print
     $('#btnPrint').addEventListener('click', ()=> window.print());
 
-    // ---- List rendering ----
-    function statusDot(val){
-      let c = '#475569';
-      if(val==='Pass') c = 'var(--ok)';
-      if(val==='Fail') c = 'var(--bad)';
-      return `<span class="dot" style="background:${c}"></span>`;
-    }
+    // Status dot helper
+    function statusDot(val){ let c = '#475569'; if(val==='Pass') c = 'var(--ok)'; if(val==='Fail') c = 'var(--bad)'; return `<span class="dot" style="background:${c}"></span>`; }
 
     function renderList(){
       const q = ($('#search').value||'').toLowerCase();
       const f = $('#filterPass').value;
       const sort = $('#sortBy').value;
-
       let arr = [...state.entries];
-      if(q){
-        arr = arr.filter(x=> [x.job,x.location,x.gc,x.super,x.notes,x.inspector,x.permit,x.completed,x.attention].join(' ').toLowerCase().includes(q));
-      }
-      if(f){
-        if(f==='Pass') arr = arr.filter(x=> x.waterPass==='Pass');
-        if(f==='Fail') arr = arr.filter(x=> x.waterPass==='Fail');
-        if(f==='DPass') arr = arr.filter(x=> x.drainPass==='Pass');
-        if(f==='DFail') arr = arr.filter(x=> x.drainPass==='Fail');
-      }
+      if(q){ arr = arr.filter(x=> [x.job,x.location,x.gc,x.super,x.notes,x.inspector,x.permit,x.completed,x.attention].join(' ').toLowerCase().includes(q)); }
+      if(f){ if(f==='Pass') arr = arr.filter(x=> x.waterPass==='Pass'); if(f==='Fail') arr = arr.filter(x=> x.waterPass==='Fail'); if(f==='DPass') arr = arr.filter(x=> x.drainPass==='Pass'); if(f==='DFail') arr = arr.filter(x=> x.drainPass==='Fail'); }
       if(sort==='dateDesc') arr.sort((a,b)=> (b.date+b.time).localeCompare(a.date+a.time));
       if(sort==='dateAsc') arr.sort((a,b)=> (a.date+a.time).localeCompare(b.date+b.time));
       if(sort==='jobAZ') arr.sort((a,b)=> (a.job||'').localeCompare(b.job||''));
       if(sort==='jobZA') arr.sort((a,b)=> (b.job||'').localeCompare(a.job||''));
-
       const html = arr.map(x=>{
         const subtitle = [x.location, x.gc, x.super].filter(Boolean).join(' • ');
         const mats = (x.materials && x.materials.length) ? `${x.materials.length} material${x.materials.length>1?'s':''}` : '';
@@ -750,28 +806,25 @@
         return `<div class="item">
           <h3>${x.job || '(no job)'} <span class="muted" style="font-weight:500">• ${x.date} ${x.time}</span></h3>
           <div class="chips">
-            <span class="pill kpi">${statusDot(x.waterPass)} <span>Water: ${x.waterPass || 'N/A'}</span>${x.waterPSI?`<span class=\"muted\"> @ ${x.waterPSI} PSI</span>`:''}</span>
-            <span class="pill kpi">${statusDot(x.drainPass)} <span>Drain: ${x.drainPass || 'N/A'}</span>${x.drainHead?`<span class=\"muted\"> • ${x.drainHead}</span>`:''}</span>
-            ${x.testPulled==='Yes' ? `<span class=\"pill\">Tag pulled</span>` : ''}
-            ${extras?`<span class=\"pill\">${extras}</span>`:''}
+            <span class="pill kpi">${statusDot(x.waterPass)} <span>Water: ${x.waterPass || 'N/A'}</span>${x.waterPSI?`<span class="muted"> @ ${x.waterPSI} PSI</span>`:''}</span>
+            <span class="pill kpi">${statusDot(x.drainPass)} <span>Drain: ${x.drainPass || 'N/A'}</span>${x.drainHead?`<span class="muted"> • ${x.drainHead}</span>`:''}</span>
+            ${x.testPulled==='Yes' ? `<span class="pill">Tag pulled</span>` : ''}
+            ${extras?`<span class="pill">${extras}</span>`:''}
           </div>
-          ${subtitle?`<div class=\"muted\" style=\"margin:6px 0 8px 0\">${subtitle}</div>`:''}
-          ${x.completed?`<div style=\"margin:6px 0\"><strong>Completed:</strong> <span class=\"muted\">${escapeHTML(x.completed).slice(0,220)}</span></div>`:''}
-          ${x.attention?`<div style=\"margin:6px 0\"><strong>Needs Attention:</strong> <span class=\"muted\">${escapeHTML(x.attention).slice(0,220)}</span></div>`:''}
-          ${x.notes?`<div style=\"white-space:pre-wrap;border-left:3px solid var(--border);padding-left:10px\">${escapeHTML(x.notes).slice(0,400)}</div>`:''}
-          <div class=\"row\" style=\"margin-top:8px;gap:8px;flex-wrap:wrap\">
-            <button type=\"button\" data-act=\"edit\" data-id=\"${x.id}\">Edit</button>
-            <button type=\"button\" class=\"secondary\" data-act=\"dup\" data-id=\"${x.id}\">Duplicate</button>
-            <button type=\"button\" class=\"secondary\" data-act=\"share\" data-id=\"${x.id}\">Share</button>
-            <button type=\"button\" class=\"secondary\" data-act=\"del\" data-id=\"${x.id}\">Delete</button>
+          ${subtitle?`<div class="muted" style="margin:6px 0 8px 0">${subtitle}</div>`:''}
+          ${x.completed?`<div style="margin:6px 0"><strong>Completed:</strong> <span class="muted">${escapeHTML(x.completed).slice(0,220)}</span></div>`:''}
+          ${x.attention?`<div style="margin:6px 0"><strong>Needs Attention:</strong> <span class="muted">${escapeHTML(x.attention).slice(0,220)}</span></div>`:''}
+          ${x.notes?`<div style="white-space:pre-wrap;border-left:3px solid var(--border);padding-left:10px">${escapeHTML(x.notes).slice(0,400)}</div>`:''}
+          <div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+            <button type="button" data-act="edit" data-id="${x.id}">Edit</button>
+            <button type="button" class="secondary" data-act="dup" data-id="${x.id}">Duplicate</button>
+            <button type="button" class="secondary" data-act="share" data-id="${x.id}">Share</button>
+            <button type="button" class="secondary" data-act="del" data-id="${x.id}">Delete</button>
           </div>
-        </div>`
+        </div>`;
       }).join('');
-
       $('#list').innerHTML = html || `<div class="muted">No entries yet. Save your first entry on the New/Edit tab.</div>`;
-
-      // Wire item actions
-      $$('#list [data-act]').forEach(btn=> btn.addEventListener('click', (e)=>{
+      $$('#list [data-act]').forEach(btn=> btn.addEventListener('click', async (e)=>{
         const id = e.currentTarget.dataset.id;
         const act = e.currentTarget.dataset.act;
         const entry = state.entries.find(x=> x.id===id);
@@ -789,14 +842,14 @@
           copy.createdAt = new Date().toISOString();
           copy.updatedAt = copy.createdAt;
           state.entries.unshift(copy);
-          saveEntries(state.entries);
+          await saveEntries(state.entries);
           renderList();
           toast('Duplicated.');
         }
         if(act==='del'){
           if(confirm('Delete this entry? This cannot be undone.')){
             const idx = state.entries.findIndex(x=> x.id===id);
-            if(idx>=0){ state.entries.splice(idx,1); saveEntries(state.entries); renderList(); toast('Deleted.'); }
+            if(idx>=0){ state.entries.splice(idx,1); await saveEntries(state.entries); renderList(); toast('Deleted.'); }
           }
         }
         if(act==='share'){
@@ -807,90 +860,7 @@
       }));
     }
 
-    function escapeHTML(s){
-      return s
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;');
-    }
-
-    // Filters and search
-    ['search','filterPass','sortBy'].forEach(id=> $('#'+id).addEventListener('input', renderList));
-
-    // ---- Export / Import ----
-    function download(filename, text, type='application/json'){
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([text], {type:type}));
-      a.download = filename;
-      a.click();
-      setTimeout(()=> URL.revokeObjectURL(a.href), 3000);
-    }
-
-    function materialsToText(mats){
-      return (mats||[]).map(m=> `${m.qty||''} ${m.unit||''} ${m.name||''}`.trim()).join('; ');
-    }
-
-    function toCSV(){
-      const cols = [
-        'id','date','time','job','location','coords.lat','coords.lng','gc','super','waterTested','waterPass','waterPSI','waterMinutes','drainTested','drainPass','drainHead','drainMinutes','testPulled','inspector','permit','nextSteps','completed','attention','materials','photosCount','notes','createdAt','updatedAt'
-      ];
-      const rows = state.entries.map(e=>{
-        const get = k => {
-          if(k==='coords.lat') return e.coords? e.coords.lat : '';
-          if(k==='coords.lng') return e.coords? e.coords.lng : '';
-          if(k==='materials') return materialsToText(e.materials);
-          if(k==='photosCount') return (e.photos||[]).length;
-          return (e[k]!==undefined && e[k]!==null) ? String(e[k]).replace(/\n/g,'\\n') : '';
-        }
-        return cols.map(get).map(v=> `"${String(v).replace(/"/g,'""')}"`).join(',');
-      });
-      return [cols.join(','), ...rows].join('\n');
-    }
-
-    $('#btnExportJSON').addEventListener('click', ()=> download(`plumbing_log_${todayStr()}.json`, JSON.stringify(state.entries, null, 2)));
-    $('#btnExportCSV').addEventListener('click', ()=>{
-      const csv = toCSV();
-      download(`plumbing_log_${todayStr()}.csv`, csv, 'text/csv');
-    });
-
-    $('#fileInput').addEventListener('change', async (e)=>{
-      const file = e.target.files[0];
-      if(!file) return;
-      const text = await file.text();
-      try{
-        const arr = JSON.parse(text);
-        if(!Array.isArray(arr)) throw new Error('Invalid file');
-        arr.forEach(x=>{ x.id = uid(); x.createdAt = new Date().toISOString(); x.updatedAt = x.createdAt; });
-        state.entries = [...arr, ...state.entries];
-        saveEntries(state.entries);
-        toast(`Imported ${arr.length} entries.`);
-      }catch(err){ alert('Import failed: ' + err.message) }
-      e.target.value = '';
-      renderList();
-    });
-
-    // ---- Settings ----
-    $('#btnSaveSettings').addEventListener('click', ()=>{
-      state.settings = {
-        defGC: $('#defGC').value.trim(),
-        defPSI: $('#defPSI').value ? Number($('#defPSI').value) : '',
-        defCity: $('#defCity').value.trim(),
-        defSuper: $('#defSuper').value.trim(),
-        geoProvider: $('#geoProvider').value,
-        geoApiKey: $('#geoApiKey').value.trim(),
-        contactEmail: $('#contactEmail').value.trim(),
-        addrFormat: $('#addrFormat').value
-      };
-      saveSettings(state.settings);
-      toast('Settings saved');
-    });
-
-    $('#btnClearAll').addEventListener('click', ()=>{
-      if(confirm('Delete ALL entries? This cannot be undone.')){
-        state.entries = []; saveEntries(state.entries); renderList(); toast('All entries cleared.');
-      }
-    });
+    function materialsToText(mats){ return (mats||[]).map(m=> `${m.qty||''} ${m.unit||''} ${m.name||''}`.trim()).join('; '); }
 
     function formatShare(e){
       const lines = [];
@@ -907,49 +877,160 @@
       if(e.attention) lines.push(`Needs Attention: ${e.attention}`);
       const mats = materialsToText(e.materials); if(mats) lines.push(`Materials: ${mats}`);
       if((e.photos||[]).length) lines.push(`Photos: ${(e.photos||[]).length} attached`);
+      if(e.signature) lines.push(`Signature: attached`);
       if(e.nextSteps) lines.push(`Next: ${e.nextSteps}`);
       if(e.notes) lines.push(`Notes: ${e.notes}`);
-      return lines.join(String.fromCharCode(10));
+      return lines.join('\n');
     }
 
+    // Filters and search
+    ['search','filterPass','sortBy'].forEach(id=> $('#'+id).addEventListener('input', renderList));
+
+    // Export / Import
+    function download(filename, text, type='application/json'){
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], {type:type}));
+      a.download = filename;
+      a.click();
+      setTimeout(()=> URL.revokeObjectURL(a.href), 3000);
+    }
+    function toCSV(){
+      const cols = ['id','date','time','job','location','coords.lat','coords.lng','gc','super','waterTested','waterPass','waterPSI','waterMinutes','drainTested','drainPass','drainHead','drainMinutes','testPulled','inspector','permit','nextSteps','completed','attention','materials','photosCount','signature','notes','createdAt','updatedAt'];
+      const rows = state.entries.map(e=>{
+        const get = k => {
+          if(k==='coords.lat') return e.coords? e.coords.lat : '';
+          if(k==='coords.lng') return e.coords? e.coords.lng : '';
+          if(k==='materials') return materialsToText(e.materials);
+          if(k==='photosCount') return (e.photos||[]).length;
+          if(k==='signature') return e.signature ? 'Yes' : '';
+          return (e[k]!==undefined && e[k]!==null) ? String(e[k]).replace(/\n/g,'\\n') : '';
+        };
+        return cols.map(get).map(v=> `"${String(v).replace(/"/g,'""')}"`).join(',');
+      });
+      return [cols.join(','), ...rows].join('\n');
+    }
+
+    $('#btnExportJSON').addEventListener('click', ()=> download(`plumbing_log_${todayStr()}.json`, JSON.stringify(state.entries, null, 2)));
+    $('#btnExportCSV').addEventListener('click', ()=>{
+      const csv = toCSV();
+      download(`plumbing_log_${todayStr()}.csv`, csv, 'text/csv');
+    });
+
+    // ---- File System Sync (Save/Load) ----
+    // These functions use the File System Access API to write/read a JSON file.
+    // This allows you to keep your log file in a cloud-synced folder (Google Drive,
+    // Dropbox, OneDrive, etc.) so entries stay consistent across devices. The API
+    // requires HTTPS or localhost and must be called in response to a user
+    // gesture to show the file picker.
+    async function saveToFile(){
+      if(!window.showSaveFilePicker){
+        alert('File System Access API is not supported in this browser.');
+        return;
+      }
+      try{
+        const options = {
+          types: [ { description: 'JSON Files', accept: { 'application/json': ['.json'] } } ],
+          suggestedName: 'plumbing_log.json'
+        };
+        const handle = await window.showSaveFilePicker(options);
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(state.entries, null, 2));
+        await writable.close();
+        toast('Entries saved to file.');
+      }catch(err){
+        if(err.name !== 'AbortError') alert('Save failed: ' + err.message);
+      }
+    }
+
+    async function loadFromFile(){
+      if(!window.showOpenFilePicker){
+        alert('File System Access API is not supported in this browser.');
+        return;
+      }
+      try{
+        const [handle] = await window.showOpenFilePicker({
+          types: [ { description: 'JSON Files', accept: { 'application/json': ['.json'] } } ]
+        });
+        const file = await handle.getFile();
+        const text = await file.text();
+        const arr = JSON.parse(text);
+        if(!Array.isArray(arr)) throw new Error('File does not contain an array');
+        arr.forEach(x=>{
+          x.id = uid();
+          x.createdAt = new Date().toISOString();
+          x.updatedAt = x.createdAt;
+        });
+        state.entries = [...arr, ...state.entries];
+        await saveEntries(state.entries);
+        renderList();
+        toast(`Loaded ${arr.length} entries from file.`);
+      }catch(err){
+        if(err.name !== 'AbortError') alert('Load failed: ' + err.message);
+      }
+    }
+
+    // Attach sync functions to buttons
+    $('#btnSaveToFile').addEventListener('click', saveToFile);
+    $('#btnLoadFromFile').addEventListener('click', loadFromFile);
+
+    $('#fileInput').addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const text = await file.text();
+      try{
+        const arr = JSON.parse(text);
+        if(!Array.isArray(arr)) throw new Error('Invalid file');
+        arr.forEach(x=>{ x.id = uid(); x.createdAt = new Date().toISOString(); x.updatedAt = x.createdAt; });
+        state.entries = [...arr, ...state.entries];
+        await saveEntries(state.entries);
+        toast(`Imported ${arr.length} entries.`);
+      }catch(err){ alert('Import failed: ' + err.message); }
+      e.target.value = '';
+      renderList();
+    });
+
+    // Settings
+    $('#btnSaveSettings').addEventListener('click', async ()=>{
+      state.settings = {
+        defGC: $('#defGC').value.trim(),
+        defPSI: $('#defPSI').value ? Number($('#defPSI').value) : '',
+        defCity: $('#defCity').value.trim(),
+        defSuper: $('#defSuper').value.trim(),
+        geoProvider: $('#geoProvider').value,
+        geoApiKey: $('#geoApiKey').value.trim(),
+        contactEmail: $('#contactEmail').value.trim(),
+        addrFormat: $('#addrFormat').value,
+        theme: document.documentElement.dataset.theme
+      };
+      await saveSettings(state.settings);
+      toast('Settings saved');
+    });
+
+    $('#btnClearAll').addEventListener('click', async ()=>{
+      if(confirm('Delete ALL entries? This cannot be undone.')){
+        state.entries = []; await saveEntries(state.entries); renderList(); toast('All entries cleared.');
+      }
+    });
+
+    // Toast helper
     function toast(msg){
       const t = document.createElement('div');
-      t.textContent = msg; t.style.position='fixed'; t.style.bottom='16px'; t.style.left='50%'; t.style.transform='translateX(-50%)'; t.style.background='var(--panel)'; t.style.border='1px solid var(--border)'; t.style.padding='10px 14px'; t.style.borderRadius='999px'; t.style.boxShadow='0 10px 30px var(--shadow)'; t.style.zIndex='50';
-      document.body.appendChild(t); setTimeout(()=> t.remove(), 2000);
+      t.textContent = msg;
+      t.style.position='fixed'; t.style.bottom='16px'; t.style.left='50%'; t.style.transform='translateX(-50%)'; t.style.background='var(--panel)'; t.style.border='1px solid var(--border)'; t.style.padding='10px 14px'; t.style.borderRadius='999px'; t.style.boxShadow='0 10px 30px var(--shadow)'; t.style.zIndex='50';
+      document.body.appendChild(t);
+      setTimeout(()=> t.remove(), 2000);
     }
 
-    // Register service worker if present (won't error if missing)
-    if('serviceWorker' in navigator){
-      window.addEventListener('load', async ()=>{
-        try{ await navigator.serviceWorker.register('./sw.js'); console.log('SW registered'); }catch(e){ /* ignore when absent */ }
-      });
-    }
-
-    // ---- Self-tests ----
-    function runSelfTests(){
-      try{
-        console.group('%cField Log – Self-tests','color:#3b82f6');
-        console.assert(typeof uid()==='string' && uid().length>5, 'uid should return string');
-        const before = state.entries.length;
-        const temp = { id: uid(), date: '2025-01-01', time: '08:00', job: 'TEST', waterTested:'No', waterPass:'N/A', drainTested:'No', drainPass:'N/A' };
-        state.entries.unshift(temp); saveEntries(state.entries);
-        const idx = state.entries.findIndex(x=> x.id===temp.id);
-        console.assert(idx>=0, 'temp entry added');
-        state.entries.splice(idx,1); saveEntries(state.entries);
-        console.assert(state.entries.length===before, 'temp entry removed');
-        const csvHead = toCSV().split('\n')[0];
-        console.assert(csvHead.startsWith('id,date,time,job'), 'CSV header ok');
-        console.log('✅ Self-tests passed');
-      }catch(e){ console.error('❌ Self-tests failed', e); }
-      finally{ console.groupEnd(); }
-    }
-
-    // ---- Init ----
-    (function init(){
+    // Init
+    (async function init(){
+      state.entries = await loadEntries();
+      state.settings = await loadSettings();
+      applyThemeFromSettings();
       resetForm({});
       renderList();
-      runSelfTests();
+      initSignature();
     })();
   </script>
 </body>
 </html>
+
